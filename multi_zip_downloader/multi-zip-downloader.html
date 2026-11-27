@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>複数ZIPダウンロードツール</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 760px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        textarea {
+            width: 100%;
+            height: 160px;
+            margin-bottom: 10px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        input[type="text"], input[type="number"] {
+            padding: 6px;
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 6px;
+        }
+        button:hover { background-color: #3367d6; }
+        button:disabled { background-color: #9bb8ea; cursor: not-allowed; }
+        button.secondary { background-color: #757575; }
+        button.secondary:hover { background-color: #5f5f5f; }
+        .row { margin-bottom: 10px; }
+        .row label { display: inline-block; min-width: 130px; }
+        .tab-links { display: flex; margin-bottom: 10px; }
+        .tab-link {
+            padding: 8px 15px;
+            background-color: #f1f1f1;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            margin-right: 5px;
+        }
+        .tab-link.active { background-color: #fff; }
+        .tab-content { display: none; padding: 20px; border: 1px solid #ccc; }
+        .tab-content.active { display: block; }
+        .options { margin: 15px 0; padding: 10px 15px; background: #fafafa; border: 1px solid #e0e0e0; }
+        .options small { color: #666; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 13px; }
+        th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; word-break: break-all; }
+        th { background: #f1f1f1; }
+        .st-wait { color: #888; }
+        .st-run  { color: #1a73e8; font-weight: bold; }
+        .st-sent { color: #188038; }
+        .st-ok   { color: #188038; font-weight: bold; }
+        .st-warn { color: #e37400; font-weight: bold; }
+        .st-ng   { color: #d93025; font-weight: bold; }
+        #summary { margin-top: 10px; font-weight: bold; }
+        #frames { display: none; }
+    </style>
+</head>
+<body>
+    <h1>複数ZIPダウンロードツール</h1>
+
+    <div class="tab-links">
+        <div class="tab-link active" data-tab="id-tab">IP + xxxxxx</div>
+        <div class="tab-link" data-tab="url-tab">URL直接入力</div>
+    </div>
+
+    <div id="id-tab" class="tab-content active">
+        <div class="row">
+            <label for="host">IPアドレス：</label>
+            <input type="text" id="host" placeholder="例：192.168.10.20（:8080 などポート付きも可）" style="width:340px">
+        </div>
+        <div class="row">
+            <label for="filename">ファイル名：</label>
+            <input type="text" id="filename" value="test.zip" style="width:200px">
+        </div>
+        <p>xxxxxxを入力してください（1行に1つ）</p>
+        <textarea id="dir-names" placeholder="例：
+xxxxxx-001
+xxxxxx-002
+xxxxxx-003"></textarea>
+        <small>生成されるURL：http://<b>IP</b>/<b>xxxxxx</b>/<b>ファイル名</b></small>
+    </div>
+
+    <div id="url-tab" class="tab-content">
+        <p>ダウンロードするURLを入力してください（1行に1つ）</p>
+        <textarea id="urls" placeholder="例：
+http://192.168.10.20/xxxxxx-001/test.zip
+http://192.168.10.20/xxxxxx-002/test.zip"></textarea>
+    </div>
+
+    <div class="options">
+        <div class="row">
+            <label for="interval">ダウンロード間隔：</label>
+            <input type="number" id="interval" value="3" min="1" max="600" style="width:80px"> 秒
+            <br><small>次のファイルに進むまでの待ち時間です。ファイルが大きい・環境が遅い場合は長めにしてください。</small>
+        </div>
+        <div class="row">
+            <label><input type="checkbox" id="nocache"> キャッシュ回避</label>
+            <small>URL末尾に ?t=時刻 を付け、ブラウザキャッシュからの取得による誤判定を防ぎます。</small>
+        </div>
+        <div class="row">
+            <label><input type="checkbox" id="verify"> 検証モード</label>
+            <small>HTTPステータス・サイズ・ZIP形式を確認し、「xxxxxx_ファイル名」で保存します。
+            サーバ側でCORS許可（Access-Control-Allow-Origin）が必要です。不可の場合は自動で通常ダウンロードに切り替わります。
+            ファイルを一旦メモリに読み込むため、大きいファイルでは負荷が上がります。</small>
+        </div>
+    </div>
+
+    <button id="preview-button" class="secondary">URL一覧を確認</button>
+    <button id="start-button">ダウンロード開始</button>
+    <button id="stop-button" class="secondary" disabled>停止</button>
+    <button id="copy-button" class="secondary">結果をコピー</button>
+
+    <div id="summary"></div>
+    <table>
+        <thead><tr><th style="width:35px">#</th><th>URL</th><th style="width:190px">結果</th><th style="width:130px">保存名（予測）</th><th style="width:70px">時刻</th></tr></thead>
+        <tbody id="result-body"></tbody>
+    </table>
+    <p><small>※「保存名（予測）」は、ダウンロード先フォルダに同名ファイルが無い状態から開始した場合の、Chromeの自動採番（test.zip → test (1).zip → …）に基づく予測です。
+    「要確認」の行はファイルが作成されないため採番に含めません。</small></p>
+
+    <div id="frames"></div>
+
+    <script>
+        // ---------- タブ切り替え ----------
+        let currentTab = 'id-tab';
+        document.querySelectorAll('.tab-link').forEach(link => {
+            link.addEventListener('click', () => {
+                document.querySelectorAll('.tab-link').forEach(l => l.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                link.classList.add('active');
+                currentTab = link.dataset.tab;
+                document.getElementById(currentTab).classList.add('active');
+            });
+        });
+
+        // ---------- URL一覧の生成 ----------
+        // 戻り値: [{ url, saveName }]
+        function buildTargets() {
+            const lines = id => document.getElementById(id).value
+                .split('\n').map(s => s.trim()).filter(s => s);
+
+            if (currentTab === 'id-tab') {
+                let host = document.getElementById('host').value.trim()
+                    .replace(/^https?:\/\//, '').replace(/\/+$/, '');
+                const file = document.getElementById('filename').value.trim().replace(/^\/+/, '');
+                const ids = lines('dir-names');
+                if (!host) { alert('IPアドレスを入力してください。'); return null; }
+                if (!file) { alert('ファイル名を入力してください。'); return null; }
+                if (ids.length === 0) { alert('xxxxxxを入力してください。'); return null; }
+                return ids.map(id => ({
+                    url: 'http://' + host + '/' + encodeURIComponent(id) + '/' + file,
+                    saveName: id + '_' + file.split('/').pop()
+                }));
+            } else {
+                const urls = lines('urls');
+                if (urls.length === 0) { alert('URLを入力してください。'); return null; }
+                return urls.map(u => {
+                    const url = /^https?:\/\//.test(u) ? u : 'http://' + u;
+                    // 保存名：パスの末尾2階層を "_" でつなぐ（例：xxxxxx-001_test.zip）
+                    let saveName = 'download.zip';
+                    try {
+                        const seg = new URL(url).pathname.split('/').filter(s => s).map(decodeURIComponent);
+                        if (seg.length) saveName = seg.slice(-2).join('_');
+                    } catch (e) { /* そのまま */ }
+                    return { url, saveName };
+                });
+            }
+        }
+
+        // ---------- 結果テーブル ----------
+        const tbody = document.getElementById('result-body');
+        let rows = [];
+
+        function renderTable(targets) {
+            tbody.innerHTML = '';
+            rows = targets.map((t, i) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = '<td>' + (i + 1) + '</td><td></td><td class="st-wait">待機</td><td></td><td></td>';
+                tr.children[1].textContent = t.url;
+                tbody.appendChild(tr);
+                return { tr, status: '待機', predicted: '', time: '' };
+            });
+            document.getElementById('summary').textContent = '対象：' + targets.length + '件';
+        }
+
+        function setStatus(i, cls, text) {
+            const r = rows[i];
+            r.status = text;
+            r.time = new Date().toLocaleTimeString('ja-JP');
+            r.tr.children[2].className = cls;
+            r.tr.children[2].textContent = text;
+            r.tr.children[4].textContent = r.time;
+        }
+
+        function setPredicted(i, name) {
+            rows[i].predicted = name;
+            rows[i].tr.children[3].textContent = name;
+        }
+
+        // Chromeの自動採番を予測する（同名ファイルが何件目か → "test (n).zip"）
+        const nameCounter = {};
+        function predictChromeName(url) {
+            let base = 'download';
+            try {
+                const seg = new URL(url).pathname.split('/').filter(s => s);
+                if (seg.length) base = decodeURIComponent(seg[seg.length - 1]);
+            } catch (e) { /* そのまま */ }
+            const n = nameCounter[base] || 0;
+            nameCounter[base] = n + 1;
+            if (n === 0) return base;
+            const dot = base.lastIndexOf('.');
+            return dot > 0
+                ? base.slice(0, dot) + ' (' + n + ')' + base.slice(dot)
+                : base + ' (' + n + ')';
+        }
+
+        // ---------- ダウンロード処理 ----------
+        const sleep = ms => new Promise(res => setTimeout(res, ms));
+        const framesBox = document.getElementById('frames');
+
+        // 通常モード：非表示iframeで1件ずつダウンロード（タブは開かない）
+        // ZIPはダウンロード扱いになりiframeのloadイベントは通常発生しない。
+        // loadが発生した = ページ（404/接続エラー等）が表示された可能性が高い → 要確認
+        function downloadByIframe(url, waitMs) {
+            return new Promise(resolve => {
+                const f = document.createElement('iframe');
+                let loaded = false;
+                f.addEventListener('load', () => { loaded = true; });
+                f.src = url;               // append前にsrcを設定（about:blankのload誤検知防止）
+                framesBox.appendChild(f);
+                setTimeout(() => {
+                    if (loaded) f.remove(); // エラーページは不要なので破棄
+                    resolve(loaded ? 'page' : 'sent');
+                }, waitMs);
+            });
+        }
+
+        // 検証モード：fetchで取得して中身を確認し、名前を付けて保存
+        async function downloadByFetch(url, saveName) {
+            let res;
+            try {
+                res = await fetch(url, { cache: 'no-store' });
+            } catch (e) {
+                return { kind: 'cors' }; // CORS不可 or 接続不可（ブラウザ側では区別できない）
+            }
+            if (!res.ok) return { kind: 'ng', msg: 'NG：HTTP ' + res.status };
+            const blob = await res.blob();
+            const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+            const isZip = head[0] === 0x50 && head[1] === 0x4B &&
+                ((head[2] === 0x03 && head[3] === 0x04) || (head[2] === 0x05 && head[3] === 0x06));
+            const size = blob.size.toLocaleString() + ' B';
+            if (!isZip) return { kind: 'ng', msg: 'NG：ZIP形式ではない（' + size + '）' };
+
+            const a = document.createElement('a');
+            const objUrl = URL.createObjectURL(blob);
+            a.href = objUrl;
+            a.download = saveName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(objUrl), 10000);
+            return { kind: 'ok', msg: 'OK：HTTP 200 / ' + size + ' / ' + saveName };
+        }
+
+        let stopRequested = false;
+        const startBtn = document.getElementById('start-button');
+        const stopBtn = document.getElementById('stop-button');
+
+        document.getElementById('preview-button').addEventListener('click', () => {
+            const t = buildTargets();
+            if (t) renderTable(t);
+        });
+
+        startBtn.addEventListener('click', async () => {
+            const targets = buildTargets();
+            if (!targets) return;
+            renderTable(targets);
+
+            const waitMs = Math.max(1, Number(document.getElementById('interval').value) || 3) * 1000;
+            const nocache = document.getElementById('nocache').checked;
+            const verify = document.getElementById('verify').checked;
+
+            framesBox.innerHTML = '';
+            Object.keys(nameCounter).forEach(k => delete nameCounter[k]);
+            stopRequested = false;
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
+
+            for (let i = 0; i < targets.length; i++) {
+                if (stopRequested) {
+                    for (let j = i; j < targets.length; j++) setStatus(j, 'st-wait', '中止');
+                    break;
+                }
+                let url = targets[i].url;
+                if (nocache) url += (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+                setStatus(i, 'st-run', '実行中…');
+
+                let fallback = !verify;
+                if (verify) {
+                    const r = await downloadByFetch(url, targets[i].saveName);
+                    if (r.kind === 'ok') { setStatus(i, 'st-ok', r.msg); setPredicted(i, targets[i].saveName); }
+                    else if (r.kind === 'ng') { setStatus(i, 'st-ng', r.msg); setPredicted(i, '-'); }
+                    else fallback = true; // CORS不可 → 通常ダウンロードへ
+                    if (!fallback && i < targets.length - 1) await sleep(waitMs);
+                }
+                if (fallback) {
+                    const r = await downloadByIframe(url, waitMs);
+                    const note = verify ? '（検証不可のため通常DL）' : '';
+                    if (r === 'sent') {
+                        setStatus(i, 'st-sent', 'ダウンロード要求済' + note);
+                        setPredicted(i, predictChromeName(targets[i].url));
+                    } else {
+                        setStatus(i, 'st-warn', '要確認：ページが表示された（404/接続エラー等の可能性）');
+                        setPredicted(i, '-（保存なし）');
+                    }
+                }
+            }
+
+            const count = cls => rows.filter(r => r.tr.children[2].className === cls).length;
+            document.getElementById('summary').textContent =
+                '完了：全' + rows.length + '件 / OK・要求済 ' + (count('st-ok') + count('st-sent')) +
+                ' / 要確認 ' + count('st-warn') + ' / NG ' + count('st-ng') +
+                '　※ブラウザのダウンロード一覧でも完了を確認してください';
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+        });
+
+        stopBtn.addEventListener('click', () => {
+            stopRequested = true;
+            stopBtn.disabled = true;
+        });
+
+        // 結果をTSVでコピー（Excelの試験記録に貼り付け可）
+        document.getElementById('copy-button').addEventListener('click', () => {
+            if (rows.length === 0) { alert('結果がありません。'); return; }
+            const tsv = ['No\tURL\t結果\t保存名（予測）\t時刻'].concat(rows.map((r, i) =>
+                (i + 1) + '\t' + r.tr.children[1].textContent + '\t' + r.status + '\t' + r.predicted + '\t' + r.time
+            )).join('\n');
+            const ta = document.createElement('textarea');
+            ta.value = tsv;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            alert('結果をコピーしました（Excelに貼り付けできます）。');
+        });
+    </script>
+</body>
+</html>
